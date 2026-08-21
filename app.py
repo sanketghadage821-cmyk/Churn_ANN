@@ -1,343 +1,54 @@
-from flask import Flask, request, render_template_string
-import pickle
 import numpy as np
-import os
+from flask import Flask, request, jsonify, render_template
+import tensorflow as tf
 
 app = Flask(__name__)
 
-# -------------------------------------------------
-# Load model
-# -------------------------------------------------
-
-MODEL_PATH = "model(2).pkl"
+# Load the trained Keras model
+# Since model.pkl contains the saved Keras Sequential architecture and weights
+MODEL_PATH = "model.pkl"
 
 try:
-    with open(MODEL_PATH, "rb") as file:
-        model = pickle.load(file)
-
-    print("Model loaded successfully")
-
+    model = tf.keras.models.load_model(MODEL_PATH)
+    print("Model loaded successfully!")
 except Exception as e:
+    print(f"Error loading model: {e}")
     model = None
-    print("Model loading error:", e)
 
-
-# -------------------------------------------------
-# HTML
-# -------------------------------------------------
-
-HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-
-    <title>Customer Churn Prediction</title>
-
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <style>
-
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-            min-height: 100vh;
-
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .container {
-            width: 90%;
-            max-width: 500px;
-            background: white;
-            padding: 35px;
-            border-radius: 20px;
-
-            box-shadow:
-                0 15px 35px rgba(0,0,0,0.3);
-        }
-
-        h1 {
-            text-align: center;
-            color: #203a43;
-            margin-bottom: 5px;
-        }
-
-        .subtitle {
-            text-align: center;
-            color: #777;
-            margin-bottom: 30px;
-        }
-
-        .input-group {
-            margin-bottom: 15px;
-        }
-
-        label {
-            display: block;
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 6px;
-        }
-
-        input {
-            width: 100%;
-            padding: 12px;
-
-            border: 1px solid #ccc;
-            border-radius: 8px;
-
-            font-size: 15px;
-        }
-
-        input:focus {
-            outline: none;
-            border: 2px solid #203a43;
-        }
-
-        button {
-            width: 100%;
-            padding: 14px;
-
-            margin-top: 10px;
-
-            border: none;
-            border-radius: 8px;
-
-            background: #203a43;
-            color: white;
-
-            font-size: 17px;
-            font-weight: bold;
-
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #0f2027;
-        }
-
-        .result {
-            margin-top: 25px;
-            padding: 18px;
-
-            border-radius: 10px;
-
-            background: #e8f5e9;
-            color: #1b5e20;
-
-            text-align: center;
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-        .error {
-            margin-top: 20px;
-            padding: 15px;
-
-            border-radius: 10px;
-
-            background: #ffebee;
-            color: #c62828;
-
-            text-align: center;
-        }
-
-        .probability {
-            margin-top: 8px;
-            font-size: 14px;
-            font-weight: normal;
-        }
-
-    </style>
-
-</head>
-
-<body>
-
-<div class="container">
-
-    <h1>Customer Churn Prediction</h1>
-
-    <p class="subtitle">
-        Artificial Neural Network
-    </p>
-
-    <form method="POST">
-
-        <div class="input-group">
-            <label>Input 1</label>
-            <input
-                type="number"
-                step="any"
-                name="input1"
-                required>
-        </div>
-
-        <div class="input-group">
-            <label>Input 2</label>
-            <input
-                type="number"
-                step="any"
-                name="input2"
-                required>
-        </div>
-
-        <div class="input-group">
-            <label>Input 3</label>
-            <input
-                type="number"
-                step="any"
-                name="input3"
-                required>
-        </div>
-
-        <div class="input-group">
-            <label>Input 4</label>
-            <input
-                type="number"
-                step="any"
-                name="input4"
-                required>
-        </div>
-
-        <button type="submit">
-            Predict Churn
-        </button>
-
-    </form>
-
-
-    {% if prediction %}
-
-        <div class="result">
-
-            {{ prediction }}
-
-            {% if probability %}
-                <div class="probability">
-                    Probability: {{ probability }}
-                </div>
-            {% endif %}
-
-        </div>
-
-    {% endif %}
-
-
-    {% if error %}
-
-        <div class="error">
-            {{ error }}
-        </div>
-
-    {% endif %}
-
-</div>
-
-</body>
-</html>
-"""
-
-
-# -------------------------------------------------
-# Home / Prediction
-# -------------------------------------------------
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/")
 def home():
+    return jsonify({
+        "status": "online",
+        "message": "Churn Prediction ANN API is running."
+    })
 
-    prediction = None
-    probability_text = None
-    error = None
+@app.route("/predict", methods=["POST"])
+def predict():
+    if model is None:
+        return jsonify({"error": "Model is not loaded properly."}), 500
 
-    if request.method == "POST":
+    try:
+        data = request.get_json(force=True)
 
-        try:
+        # Your input layer expects 10 feature inputs
+        features = np.array(data["features"], dtype=np.float32)
 
-            if model is None:
-                raise Exception("Model could not be loaded.")
+        # Reshape for single sample prediction if 1D array is provided
+        if features.ndim == 1:
+            features = np.expand_dims(features, axis=0)
 
-            # Get input values
-            input1 = float(request.form["input1"])
-            input2 = float(request.form["input2"])
-            input3 = float(request.form["input3"])
-            input4 = float(request.form["input4"])
+        # Run model inference
+        prediction = model.predict(features)
+        churn_probability = float(prediction[0][0])
+        will_churn = bool(churn_probability > 0.5)
 
-            # Create NumPy array
-            input_data = np.array(
-                [[
-                    input1,
-                    input2,
-                    input3,
-                    input4
-                ]],
-                dtype=np.float32
-            )
+        return jsonify({
+            "churn_probability": churn_probability,
+            "will_churn": will_churn
+        })
 
-            # Make prediction
-            result = model.predict(input_data, verbose=0)
-
-            print("Prediction result:", result)
-
-            # Binary classification
-            probability = float(np.asarray(result).flatten()[0])
-
-            probability_text = f"{probability:.2%}"
-
-            if probability >= 0.5:
-
-                prediction = "⚠️ Customer is likely to CHURN"
-
-            else:
-
-                prediction = "✅ Customer is likely to STAY"
-
-
-        except Exception as e:
-
-            print("Prediction error:", e)
-
-            error = str(e)
-
-
-    return render_template_string(
-        HTML,
-        prediction=prediction,
-        probability=probability_text,
-        error=error
-    )
-
-
-# -------------------------------------------------
-# Health check
-# -------------------------------------------------
-
-@app.route("/health")
-def health():
-
-    return {
-        "status": "OK",
-        "model_loaded": model is not None
-    }
-
-
-# -------------------------------------------------
-# Render
-# -------------------------------------------------
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 if __name__ == "__main__":
-
-    port = int(os.environ.get("PORT", 5000))
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    app.run(host="0.0.0.0", port=5000, debug=True)
